@@ -1,0 +1,92 @@
+﻿using JobBoardPlatform.Buisiness.Common.Exceptions;
+using JobBoardPlatform.Buisiness.Dtos.JobApplication;
+using JobBoardPlatform.Buisiness.Interfaces;
+using JobBoardPlatform.Domain.Entities.JobApplications;
+using JobBoardPlatform.Domain.Enums;
+
+namespace JobBoardPlatform.Buisiness.Services;
+
+public class EmployerApplicationService : IEmployerApplicationService
+{
+    private readonly IJobApplicationRepository _appRepo;
+    private readonly IJobPostingRepository _postingRepo;
+    private readonly IEmailNotificationService _emailNotifier;
+
+    private static readonly Dictionary<ApplicationStatus, ApplicationStatus[]> AllowedTransitions = new()
+    {
+        [ApplicationStatus.Pending] = new[] { ApplicationStatus.Reviewing },
+        [ApplicationStatus.Reviewing] = new[] { ApplicationStatus.Interview, ApplicationStatus.Rejected },
+        [ApplicationStatus.Interview] = new[] { ApplicationStatus.Accepted, ApplicationStatus.Rejected },
+    };
+
+    public EmployerApplicationService(IJobApplicationRepository appRepo, IJobPostingRepository postingRepo, IEmailNotificationService emailNotifier)
+    {
+        _appRepo = appRepo;
+        _postingRepo = postingRepo;
+        _emailNotifier = emailNotifier;
+    }
+
+    public async Task<List<JobApplicationDto>> GetApplicationsForJobPostingAsync(int employerId, int jobPostingId)
+    {
+        await EnsureOwnsPostingAsync(employerId, jobPostingId);
+        var apps = await _appRepo.GetByJobPostingIdAsync(jobPostingId);
+        return apps.Select(MapToDto).ToList();
+    }
+
+    public async Task<JobApplicationDto> GetApplicationDetailsAsync(int employerId, int applicationId)
+        => MapToDto(await GetOwnedApplicationAsync(employerId, applicationId));
+
+    public async Task<JobApplicationDto> ChangeStatusAsync(int employerId, int applicationId, ApplicationStatus newStatus)
+    {
+        var app = await GetOwnedApplicationAsync(employerId, applicationId);
+
+        if (!AllowedTransitions.TryGetValue(app.Status, out var allowed) || !allowed.Contains(newStatus))
+            throw new InvalidStatusTransitionException($"Changing the status from {app.Status} to {newStatus} is not allowed");
+
+        app.Status = newStatus;
+        app.UpdatedAt = DateTime.UtcNow;
+        await _appRepo.UpdateAsync(app);
+        
+        var templateKey = newStatus switch
+        {
+            ApplicationStatus.Reviewing => "ApplicationReviewing",
+            ApplicationStatus.Interview => "ApplicationInterview",
+            ApplicationStatus.Accepted => "ApplicationAccepted",
+            ApplicationStatus.Rejected => "ApplicationRejected",
+            _ => null
+        };
+        
+        if (templateKey != null)
+        {
+            await _emailNotifier.SendAsync(templateKey, app.JobSeeker.Email!, new Dictionary<string, string>
+            {
+                ["FullName"] = app.JobSeeker.FullName,
+                ["JobTitle"] = app.JobPosting.Title
+            });
+        }
+        
+        return MapToDto(app);
+    }
+
+    private async Task EnsureOwnsPostingAsync(int employerId, int jobPostingId)
+    {
+        var posting = await _postingRepo.GetByIdAsync(jobPostingId) ?? throw new NotFoundException("The job posting was not found");
+        if (posting.EmployerId != employerId)
+            throw new ForbiddenAccessException("You do not have access to this job posting");
+    }
+
+    private async Task<JobApplication> GetOwnedApplicationAsync(int employerId, int applicationId)
+    {
+        var app = await _appRepo.GetByIdAsync(applicationId) ?? throw new NotFoundException("The application was not found");
+        if (app.JobPosting.EmployerId != employerId)
+            throw new ForbiddenAccessException("You do not have access to this application");
+        return app;
+    }
+
+    private static JobApplicationDto MapToDto(JobApplication ja) => new()
+    {
+        Id = ja.Id, JobPostingId = ja.JobPostingId, JobPostingTitle = ja.JobPosting?.Title ?? "",
+        JobSeekerId = ja.JobSeekerId, JobSeekerName = ja.JobSeeker?.FullName ?? "",
+        Status = ja.Status.ToString(), CoverLetter = ja.CoverLetter, AppliedAt = ja.CreatedAt
+    };
+}
