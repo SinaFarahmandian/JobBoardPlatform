@@ -6,14 +6,20 @@ using JobBoardPlatform.Domain.Entities.JobPostings;
 using JobBoardPlatform.Domain.Entities.JobSeekers;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace JobBoardPlatform.Infrastructure.Data;
 
 public static class DataSeeder
 {
-    public static async Task SeedFakeDataAsync(AppDbContext context, UserManager<User> userManager)
+    public static async Task SeedFakeDataAsync(AppDbContext context, UserManager<User> userManager,
+        IConfiguration configuration)
     {
         if (await context.Companies.AnyAsync())
+            return;
+
+        var password = configuration["FakeDataSeed:Password"];
+        if (string.IsNullOrWhiteSpace(password))
             return;
 
         Randomizer.Seed = new Random(42);
@@ -39,7 +45,7 @@ public static class DataSeeder
             var email = faker.Internet.Email();
 
             var employer = new Employer(fullName, email, company.Id);
-            var result = await userManager.CreateAsync(employer, "Test@123");
+            var result = await userManager.CreateAsync(employer, password);
             if (result.Succeeded)
             {
                 await userManager.AddToRoleAsync(employer, "Employer");
@@ -90,7 +96,7 @@ public static class DataSeeder
                 YearsOfExperience = years,
                 DesiredJobTitle = faker.Name.JobTitle()
             };
-            var result = await userManager.CreateAsync(jobSeeker, "Test@123");
+            var result = await userManager.CreateAsync(jobSeeker, password);
             if (result.Succeeded)
                 await userManager.AddToRoleAsync(jobSeeker, "JobSeeker");
         }

@@ -126,7 +126,7 @@ using (var scope = app.Services.CreateScope())
 
     if (app.Environment.IsDevelopment())
     {
-        await DataSeeder.SeedFakeDataAsync(context, userManager);
+        await DataSeeder.SeedFakeDataAsync(context, userManager, config);
     }
 }
 

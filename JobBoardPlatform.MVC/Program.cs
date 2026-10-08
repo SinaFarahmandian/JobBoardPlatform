@@ -19,7 +19,8 @@ builder.Services.AddControllersWithViews(options =>
 });
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"),
+        sql => sql.MigrationsAssembly(typeof(AppDbContext).Assembly.GetName().Name)));
 
 builder.Services.AddIdentity<User, IdentityRole<int>>(options =>
     {
@@ -71,6 +72,8 @@ using (var scope = app.Services.CreateScope())
     var userManager = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+
+    await context.Database.MigrateAsync();
 
     foreach (var role in new[] { "JobSeeker", "Employer", "Admin" })
     {
