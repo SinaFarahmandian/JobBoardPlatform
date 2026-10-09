@@ -1,3 +1,5 @@
+Live demo: https://jobboardplatform.runasp.net
+
 # JobBoardPlatform
 
 A job board web application built with ASP.NET Core, following a clean/layered architecture (Domain, Business, Infrastructure, MVC, WebApi).
